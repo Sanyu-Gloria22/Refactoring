@@ -34,7 +34,7 @@ describe("PaymentProcessor", () => {
   });
 
   test("throws error for invalid credit card metadata", () => {
-    const metadata = { cardNumber: "1234" }; // no expiry
+    const metadata = { cardNumber: "1234" };
 
     expect(() =>
       processor.processPayment(
@@ -62,7 +62,7 @@ describe("PaymentProcessor", () => {
       0
     );
 
-    expect(tx.finalAmount).toBe(80); // 20% off
+    expect(tx.finalAmount).toBe(80); 
   });
 
   test("applies WELCOME10 discount", () => {
@@ -114,6 +114,6 @@ describe("PaymentProcessor", () => {
       })
     );
 
-    expect(refund.netAmount).toBe(95); // 5% fee
+    expect(refund.netAmount).toBe(95);
   });
 });
