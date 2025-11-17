@@ -12,9 +12,10 @@ const REFUND_FEE_PERCENT = 0.05;
 class FraudChecker {
   check(amount, userId) {
     if (amount < FRAUD_LIMIT) {
-      return this.lightCheck(userId, amount);
+      this.lightCheck(userId, amount);
+    } else {
+      this.heavyCheck(userId, amount);
     }
-    return this.heavyCheck(userId, amount);
   }
 
   lightCheck(userId, amount) {
@@ -58,7 +59,6 @@ class PaymentValidator {
         if (!metadata.cardNumber || !metadata.expiry)
           throw new Error("Invalid card metadata");
       },
-
       paypal: () => {
         if (!metadata.paypalAccount)
           throw new Error("Invalid PayPal metadata");
@@ -66,7 +66,6 @@ class PaymentValidator {
     };
 
     if (!validators[method]) throw new Error("Unsupported payment method");
-
     validators[method]();
   }
 }
@@ -75,28 +74,29 @@ class PaymentProcessor {
   constructor(apiClient) {
     this.apiClient = apiClient;
     this.validator = new PaymentValidator();
-    this.currency = new CurrencyService();
-    this.discount = new DiscountService();
-    this.fraud = new FraudChecker();
+    this.currencyService = new CurrencyService();
+    this.discountService = new DiscountService();
+    this.fraudChecker = new FraudChecker();
+    this.currencyConversionRate = CURRENCY_RATE;
   }
 
-  processPayment({
+  processPayment(
     amount,
     currency,
     userId,
     paymentMethod,
     metadata,
     discountCode,
-    fraudCheckLevel,
-  }) {
+    fraudCheckLevel
+  ) {
     this.validator.validate(paymentMethod, metadata);
 
     if (fraudCheckLevel > 0) {
-      this.fraud.check(amount, userId);
+      this.fraudChecker.check(amount, userId);
     }
 
-    let finalAmount = this.discount.apply(amount, discountCode);
-    finalAmount = this.currency.convert(finalAmount, currency);
+    let finalAmount = this.discountService.apply(amount, discountCode);
+    finalAmount = this.currencyService.convert(finalAmount, currency);
 
     const transaction = {
       userId,
@@ -110,12 +110,15 @@ class PaymentProcessor {
       timestamp: new Date().toISOString(),
     };
 
-    this.apiClient.post(`/payments/${paymentMethod}`, transaction);
+    this.apiClient.post(
+      paymentMethod === "credit_card" ? "/payments/credit" : "/payments/paypal",
+      transaction
+    );
 
     console.log("Payment sent to API:", transaction);
 
-    this.sendConfirmationEmail(userId, finalAmount, currency);
-    this.logAnalytics({
+    this._sendConfirmationEmail(userId, finalAmount, currency);
+    this._logAnalytics({
       userId,
       amount: finalAmount,
       currency,
@@ -125,17 +128,17 @@ class PaymentProcessor {
     return transaction;
   }
 
-  sendConfirmationEmail(userId, amount, currency) {
+  _sendConfirmationEmail(userId, amount, currency) {
     console.log(
-      `Email to ${userId}: Your payment of ${amount} ${currency} was successful`
+      `Sending email to user ${userId}: Your payment of ${amount} ${currency} was successful.`
     );
   }
 
-  logAnalytics(data) {
+  _logAnalytics(data) {
     console.log("Analytics event:", data);
   }
 
-  refundPayment({ transactionId, userId, reason, amount, currency, metadata }) {
+  refundPayment(transactionId, userId, reason, amount, currency, metadata) {
     const refundFee = amount * REFUND_FEE_PERCENT;
 
     const refund = {
@@ -146,7 +149,7 @@ class PaymentProcessor {
       currency,
       metadata,
       netAmount: amount - refundFee,
-      date: new Date().toISOString(),
+      date: new Date(),
     };
 
     this.apiClient.post("/payments/refund", refund);
